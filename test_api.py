@@ -6,7 +6,7 @@ from PIL import Image
 import io
 
 # API configuration
-API_BASE_URL = "http://localhost:5000"  # Change this to your deployed URL
+API_BASE_URL = "https://edu-hack-class-classif.onrender.com"  # Change this to your deployed URL
 # API_BASE_URL = "https://your-app-name.onrender.com"
 
 def encode_image_to_base64(image_path):

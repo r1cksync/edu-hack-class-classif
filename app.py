@@ -87,7 +87,22 @@ def health_check():
         'status': 'healthy',
         'service': 'Student Engagement Classification API',
         'model_loaded': model is not None,
-        'version': '1.0.0'
+        'version': '1.0.0',
+        'cwd': os.getcwd(),
+        'model_file_exists': os.path.exists(MODEL_PATH),
+        'model_path': MODEL_PATH
+    })
+
+@app.route('/reload-model', methods=['POST'])
+def reload_model():
+    """Manually reload the model"""
+    global model
+    model = None  # Reset model
+    success = load_model()
+    return jsonify({
+        'success': success,
+        'model_loaded': model is not None,
+        'message': 'Model reloaded successfully' if success else 'Failed to reload model'
     })
 
 @app.route('/model/info', methods=['GET'])
@@ -252,12 +267,24 @@ def not_found(error):
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
+# Load model when module is imported (for Gunicorn compatibility)
+logger.info("Initializing Student Engagement API...")
+logger.info(f"Current working directory: {os.getcwd()}")
+logger.info(f"Files in current directory: {os.listdir('.')}")
+
+if not load_model():
+    logger.error("Failed to load model during initialization")
+    # Don't exit here as it would prevent Gunicorn from starting
+    # The endpoints will handle the None model gracefully
+else:
+    logger.info("Model loaded successfully during initialization")
+
 if __name__ == '__main__':
-    # Load model on startup
-    if load_model():
-        logger.info("Starting Student Engagement API service...")
-        port = int(os.environ.get('PORT', 5000))
-        app.run(host='0.0.0.0', port=port, debug=False)
-    else:
-        logger.error("Failed to load model. Exiting...")
+    # This runs when using python app.py directly
+    if model is None:
+        logger.error("Model not loaded. Exiting...")
         exit(1)
+    
+    logger.info("Starting Student Engagement API service in development mode...")
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
