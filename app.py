@@ -25,19 +25,116 @@ IMG_SIZE = (224, 224)
 MODEL_PATH = 'Student_Engagement_Model.h5'
 
 def load_model():
-    """Load the trained model"""
+    """Load the trained model with compatibility handling"""
     global model
     try:
         if os.path.exists(MODEL_PATH):
-            model = keras.models.load_model(MODEL_PATH)
-            logger.info(f"Model loaded successfully from {MODEL_PATH}")
-            logger.info(f"Model input shape: {model.input_shape}")
-            return True
+            logger.info(f"Attempting to load model from {MODEL_PATH}")
+            
+            # Try loading with custom object scope to handle compatibility issues
+            try:
+                model = keras.models.load_model(MODEL_PATH, compile=False)
+                logger.info(f"Model loaded successfully from {MODEL_PATH}")
+                logger.info(f"Model input shape: {model.input_shape}")
+                
+                # Recompile the model with current TensorFlow version
+                model.compile(
+                    optimizer='adam',
+                    loss='sparse_categorical_crossentropy',
+                    metrics=['accuracy']
+                )
+                logger.info("Model recompiled successfully")
+                return True
+                
+            except Exception as load_error:
+                logger.warning(f"Standard loading failed: {load_error}")
+                
+                # Try alternative loading method
+                try:
+                    import h5py
+                    logger.info("Attempting alternative loading method...")
+                    
+                    # Load model architecture and weights separately
+                    with h5py.File(MODEL_PATH, 'r') as f:
+                        if 'model_config' in f.attrs:
+                            model_config = f.attrs['model_config']
+                            if isinstance(model_config, bytes):
+                                model_config = model_config.decode('utf-8')
+                            
+                            # Parse and fix config
+                            import json
+                            config = json.loads(model_config)
+                            
+                            # Fix InputLayer compatibility issue
+                            if 'config' in config and 'layers' in config['config']:
+                                for layer in config['config']['layers']:
+                                    if layer.get('class_name') == 'InputLayer':
+                                        if 'batch_shape' in layer['config']:
+                                            layer['config']['batch_input_shape'] = layer['config'].pop('batch_shape')
+                            
+                            # Recreate model from fixed config
+                            model = keras.models.model_from_json(json.dumps(config))
+                            model.load_weights(MODEL_PATH)
+                            
+                            # Recompile
+                            model.compile(
+                                optimizer='adam',
+                                loss='sparse_categorical_crossentropy',
+                                metrics=['accuracy']
+                            )
+                            
+                            logger.info("Model loaded successfully using alternative method")
+                            logger.info(f"Model input shape: {model.input_shape}")
+                            return True
+                            
+                except Exception as alt_error:
+                    logger.error(f"Alternative loading method failed: {alt_error}")
+                    
+                    # Final fallback: rebuild model architecture manually
+                    try:
+                        logger.info("Attempting to rebuild model architecture...")
+                        
+                        # Recreate the model architecture based on the training script
+                        model = keras.Sequential([
+                            keras.layers.Input(shape=(224, 224, 3)),
+                            keras.layers.Conv2D(32, (1, 1), activation='relu'),
+                            keras.layers.MaxPooling2D(3, 3),
+                            keras.layers.Conv2D(64, (1, 1), activation='relu'),
+                            keras.layers.Conv2D(64, (3, 3), activation='relu'),
+                            keras.layers.MaxPooling2D(3, 3),
+                            keras.layers.Conv2D(128, (1, 1), activation='relu'),
+                            keras.layers.Conv2D(128, (5, 5), activation='relu'),
+                            keras.layers.MaxPooling2D(3, 3),
+                            keras.layers.Conv2D(256, (1, 1), activation='relu'),
+                            keras.layers.Conv2D(256, (5, 5), activation='relu'),
+                            keras.layers.Flatten(),
+                            keras.layers.Dense(512, activation='relu'),
+                            keras.layers.Dense(6, activation='softmax')  # 6 classes
+                        ])
+                        
+                        # Try to load just the weights
+                        model.load_weights(MODEL_PATH)
+                        
+                        # Compile the model
+                        model.compile(
+                            optimizer='adam',
+                            loss='sparse_categorical_crossentropy',
+                            metrics=['accuracy']
+                        )
+                        
+                        logger.info("Model rebuilt and weights loaded successfully")
+                        logger.info(f"Model input shape: {model.input_shape}")
+                        return True
+                        
+                    except Exception as rebuild_error:
+                        logger.error(f"Model rebuild failed: {rebuild_error}")
+                        return False
         else:
             logger.error(f"Model file not found at {MODEL_PATH}")
             return False
+            
     except Exception as e:
-        logger.error(f"Error loading model: {str(e)}")
+        logger.error(f"Unexpected error loading model: {str(e)}")
         return False
 
 def preprocess_image(image_data, source_type='base64'):
